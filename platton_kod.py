@@ -143,5 +143,6 @@ def main():
     animation()
 
 main()
+print('Hej')
 
 
