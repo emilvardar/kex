@@ -141,7 +141,6 @@ def animation():
 
 def main():
     animation()
-print("a)
 main()
 
 
