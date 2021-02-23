@@ -13,10 +13,18 @@ WHEEL_WIDTH = 0.2/PARA  # [m]
 TREAD = 0.7/PARA  # [m]
 WB = 2.5/PARA  # [m]
 
+
 # start positions
-X_START1 = 20
-X_START2 = 10
-X_START3 = 0
+NUM_CARS = 2 #NUMBER OF CARS
+MAX_CARS = 7
+X_START1 = 60
+X_START2 = 50
+X_START3 = 40
+X_START4 = 30
+X_START5 = 20
+X_START6 = 10
+X_START7 = 0
+X_LIST = [X_START1, X_START2, X_START3, X_START4, X_START5, X_START6, X_START7]
 
 # Constrains on accelaration
 U_MIN = -1.5
@@ -29,7 +37,7 @@ V_MIN = 0
 V_INIT = 60
 
 #Constrains on distance
-S0 = 5 # 5 meter between the cars is the minimum possible.
+S0 = 1 # 5 meter between the cars is the minimum possible.
 
 # time step
 DT = 0.1/6
@@ -37,7 +45,8 @@ DT = 0.1/6
 #Parameters for cost function
 C1 = 0.1
 C2 = 1
-C3 = 0.5
+C3 = 0.
+
 
 # initialy distance between the cars
 S_REF = X_START1 - X_START2
@@ -109,51 +118,35 @@ def get_straight_course(dl):
 
     return cx, cy, cyaw, ck
 
-def distance(prev_distance, disp1, disp2):
+def distance(distance_list, temp_disp_list):
     '''Calculates the distance between the ancestor car'''
-    delta = disp1 - disp2
-    new_distance = prev_distance + delta
-    return new_distance
+    new_distance_list = []
+    for i in range(NUM_CARS - 1):
+        delta = temp_disp_list[-NUM_CARS] - temp_disp_list[-NUM_CARS + i]
+        new_distance_list.append(distance_list[-NUM_CARS + 1 + i] + delta)
+    for m in range(len(new_distance_list)):
+        distance_list.append(new_distance_list[m])
+    return distance_list
 
-
-def initials():
-    '''Initial values for position, velocity and accelaration'''
-    # Initial car positions
-    s1 = X_START1
-    s2 = X_START2
-    s3 = X_START3
-
-    # Initial speeds
-    v1 = V_INIT
-    v2 = V_INIT
-    v3 = V_INIT
-
-    # Initial accelarations
-    u1 = U_INIT
-    u2 = U_INIT
-    u3 = U_INIT
-
-    return s1, s2, s3, v1, v2, v3, u1, u2, u3
-
-
-def clear_and_draw_car(x1, x2, x3):
+def clear_and_draw_car(x_list):
     plt.cla()
     dl = 1  # course tick
-    cx, cy, cyaw, ck = get_straight_course(dl)  #get the straight line
-    plt.plot(cx, cy, "-r", label="course")      #plot the cars
-    plot_car(x1, 0, 0, steer=0.0)
-    plot_car(x2, 0, 0, steer=0.0)
-    plot_car(x3, 0, 0, steer=0.0)
-    plt.axis("equal")
+    cx, cy, cyaw, ck = get_straight_course(dl)  # get the straight line
+    plt.plot(cx, cy, "-r", label="course")
+    for i in range(NUM_CARS):
+        plot_car(x_list[-1-i], 0, 0, steer=0.0) # plot the cars
+
+    plt.axis([0, 300, -50, 50])
     plt.grid(True)
     plt.pause(0.0001)
 
-
-def velocity_plotter(dt_list, v1_list, v2_list, v3_list):
+def velocity_plotter(dt_list, v_list):
     plt.subplots(1)
-    plt.plot(dt_list, v1_list, "-b", label="v1")
-    plt.plot(dt_list, v2_list, "-g", label="v2")
-    plt.plot(dt_list, v3_list, "-r", label="v3")
+    colors = ['-b', '-g', '-r', '-c', '-m', '-y', '-k']
+    labels = ['v1', 'v2', 'v3', 'v4', 'v5', 'v6', 'v7']
+
+    for i in range(NUM_CARS):
+        plt.plot(dt_list, v_list[i::NUM_CARS], colors[i], label = labels[i])
     plt.grid(True)
     plt.axis("equal")
     plt.xlabel("time(s)")
@@ -161,80 +154,115 @@ def velocity_plotter(dt_list, v1_list, v2_list, v3_list):
     plt.legend()
     plt.show()
 
-
-def distance_plotter(dt_list, distance12_list, distance23_list):
+def acceleration_plotter(dt_list, u_list):
     plt.subplots(1)
-    plt.plot(dt_list, distance12_list, "-b", label="Distance between car 1 and 2")
-    plt.plot(dt_list, distance23_list, "-r", label="Distance between car 2 and 3")
+    colors = ['-b', '-g', '-r', '-c', '-m', '-y', '-k']
+    labels = ['a1', 'a2', 'a3', 'a4', 'a5', 'a6', 'a7']
+
+    for i in range(NUM_CARS):
+        plt.plot(dt_list, u_list[i::NUM_CARS], colors[i], label = labels[i])
+    plt.grid(True)
+    plt.axis("equal")
+    plt.xlabel("time(s)")
+    plt.ylabel("acceleration(m/s^2)")
+    plt.legend()
+    plt.show()
+
+def distance_plotter(dt_list, distance_list):
+    plt.subplots(1)
+    colors = ['-b', '-g', '-r', '-c', '-m', '-y', '-k']
+    labels = ['Δ12', 'Δ23', 'Δ34', 'Δ45', 'Δ56', 'Δ67']
+    for i in range(NUM_CARS-1):
+        plt.plot(dt_list, distance_list[i::NUM_CARS-1], colors[i], label = labels[i])
     plt.grid(True)
     plt.xlabel("time(s)")
     plt.ylabel("distance(m)")
     plt.legend()
     plt.show()
 
+def old_values_lists():
+    ''' Define list to hold old values for plotting the graphs '''
 
-def animation():
-    '''Does the required calculations and plots the animation.'''
+    # Initial car positions
+    x_list = []
+    for i in range(NUM_CARS):
+        x_list.append(X_LIST[MAX_CARS-NUM_CARS+i])
 
-    # Define list to hold old values for plotting the graphs
-    # Velocity lists
-    v1_list = [V_INIT]
-    v2_list = [V_INIT]
-    v3_list = [V_INIT]
+    # Initial velocities
+    v_list = []
+    for i in range(NUM_CARS):
+        v_list.append(V_INIT)
 
-    # Accelaration lists
-    u1_list = [U_INIT]
-    u2_list = [U_INIT]
-    u3_list = [U_INIT]
+    # Initial accelerations
+    u_list = []
+    for i in range(NUM_CARS):
+        u_list.append(U_INIT)
+
+    # Distance between the cars at the begining
+    distance_list = []
+    for i in range(NUM_CARS-1):
+        distance_list.append(x_list[i] - x_list[i+1])
 
     # Time list
     dt_list = [0]
 
-    # Initialize the screen and the cars
-    s1, s2, s3, v1, v2, v3, u1, u2, u3 = initials()
+    return x_list, v_list, u_list, distance_list, dt_list
 
-    # Distance between the cars at the begining
-    distance_12 = s1 - s2
-    distance_23 = s2 - s3
+def position_plotter(dt_list, x_list):
+    plt.subplots(1)
+    colors = ['-b', '-g', '-r', '-c', '-m', '-y', '-k']
+    labels = ['x1', 'x2', 'x3', 'x4', 'x5', 'x6', 'x7']
 
-    # Position lists
-    distance12_list = [distance_12]
-    distance23_list = [distance_23]
+    for i in range(NUM_CARS):
+        plt.plot(dt_list, x_list[i::NUM_CARS], colors[i], label=labels[i])
+    plt.grid(True)
+    plt.xlabel("time(s)")
+    plt.ylabel("position(m)")
+    plt.legend()
+    plt.show()
+
+def animation():
+    '''Does the required calculations and plots the animation.'''
+
+    # Coordinate, velocity and acceleration lists. These are for plotting.
+    x_list, v_list, u_list, distance_list, dt_list = old_values_lists()
 
     for i in range(200):
-
-        clear_and_draw_car(s1, s2, s3)
+        clear_and_draw_car(x_list)
 
         # If the accelartion is different from 0 the velocity for the car should change according to a = dv/dt -> dv = a*dt
         # And the total velocitiy is then v_new = v_old + dt
-        v1 = u1 * DT + v1
-        v1 = np.clip(v1, V_MIN, V_MAX)
-        v1_list.append(v1)
-        v2 = u2 * DT + v2
-        v2 = np.clip(v2, V_MIN, V_MAX)
-        v2_list.append(v2)
-        v3 = u3 * DT + v3
-        v3 = np.clip(v3, V_MIN, V_MAX)
-        v3_list.append(v3)
+        j = 0 # j is needed though the lists length always get longer.
+        for i in range(NUM_CARS):
+            v_new = u_list[-NUM_CARS+ i] * DT + v_list[-NUM_CARS + i - j]
+            v_list.append(v_new)
+            j = j + 1
+
+        for i in range(NUM_CARS):
+            u_new = 0 # Here we should add some call to MPC function
+            u_list.append(u_new)
+
         dt_list.append(DT+dt_list[-1])
 
         #The displacement in 1 iteration is calculated by x = v*dt
         # And the new position is calculated by the old position + the displacement
-        displacement1 = v1 * DT
-        s1 = s1 + displacement1
-        displacement2 = v2 * DT
-        s2 = s2 + displacement2
-        displacement3 = v3 * DT
-        s3 = s3 + displacement3
 
-        distance_12 = distance(distance_12, displacement1, displacement2)
-        distance12_list.append(distance_12)
-        distance_23 = distance(distance_23, displacement2, displacement3)
-        distance23_list.append(distance_23)
+        k = 0 # same reason as the j above
+        temp_disp_list = []
+        for i in range(NUM_CARS):
+            displacement = v_list[-NUM_CARS + i] * DT
+            temp_disp_list.append(displacement)
+            x_new = x_list[-NUM_CARS + i - k] + displacement
+            x_list.append(x_new)
+            k = k + 1
 
-    velocity_plotter(dt_list, v1_list, v2_list, v3_list)            #Same logic can be used to plot the distance between the cars,
-                                                                    #position of the cars and accelaration of each car.
-    distance_plotter(dt_list, distance12_list, distance23_list)
+        distance_list = distance(distance_list, temp_disp_list)
+
+    velocity_plotter(dt_list, v_list)
+    distance_plotter(dt_list, distance_list)
+    acceleration_plotter(dt_list, u_list)
+    position_plotter(dt_list, x_list)
+
 def main():
     animation()
 
