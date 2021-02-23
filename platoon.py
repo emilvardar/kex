@@ -13,9 +13,11 @@ WHEEL_WIDTH = 0.2/PARA  # [m]
 TREAD = 0.7/PARA  # [m]
 WB = 2.5/PARA  # [m]
 
+# Road length
+ROAD_LENGTH = 300
 
-# start positions
-NUM_CARS = 4 #NUMBER OF CARS
+# Start positions
+NUM_CARS = 2 #NUMBER OF CARS
 MAX_CARS = 7
 X_START1 = 60
 X_START2 = 50
@@ -26,35 +28,25 @@ X_START6 = 10
 X_START7 = 0
 X_LIST = [X_START1, X_START2, X_START3, X_START4, X_START5, X_START6, X_START7]
 
-# Constrains on accelaration
-U_MIN = -1.5
-U_MAX = 1.5
+# Initial acceleration
 U_INIT = 0
 
-# Constrains on velocity
-V_MAX = 120
-V_MIN = 0
+# Initial velocity
 V_INIT = 60
 
-#Constrains on distance
-S0 = 1 # 1 meter between the cars is the minimum possible.
+# Time step
+DT = 0.1/6 # [s]
 
-# time step
-DT = 0.1/6
+class Vehicle:
+    """
+    vehicle state class
+    """
+    def __init__(self, x=0.0, v=0.0, a = 0.0):
+        self.x = x
+        self.v = v
+        self.a = a
 
-#Parameters for cost function
-C1 = 0.1
-C2 = 1
-C3 = 0.
-
-
-# initialy distance between the cars
-S_REF = X_START1 - X_START2
-# reference distance when vehicles should split
-S_REF_SPLIT = 2 * S_REF
-
-
-def plot_car(x, y, yaw, steer=0.0, cabcolor="-r", truckcolor="-k"):  # pragma: no cover
+def plot_car(x, y=0.0, yaw=0.0, steer=0.0, cabcolor="-r", truckcolor="-k"):  # pragma: no cover
 
     outline = np.array([[-BACKTOWHEEL, (LENGTH - BACKTOWHEEL), (LENGTH - BACKTOWHEEL), -BACKTOWHEEL, -BACKTOWHEEL],
                         [WIDTH / 2, WIDTH / 2, - WIDTH / 2, -WIDTH / 2, WIDTH / 2]])
@@ -109,15 +101,6 @@ def plot_car(x, y, yaw, steer=0.0, cabcolor="-r", truckcolor="-k"):  # pragma: n
              np.array(rl_wheel[1, :]).flatten(), truckcolor)
     plt.plot(x, y, "*")
 
-def get_straight_course(dl):
-    a = 5 # A parameter to make the trajectory longer
-    ax = [a*0.0, a*5.0, a*10.0, a*20.0, a*30.0, a*40.0, a*50.0]
-    ay = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
-    cx, cy, cyaw, ck, s = cubic_spline_planner.calc_spline_course(
-        ax, ay, ds=dl)
-
-    return cx, cy, cyaw, ck
-
 def distance(distance_list, temp_disp_list):
     '''Calculates the distance between the ancestor car'''
     new_distance_list = []
@@ -131,10 +114,16 @@ def distance(distance_list, temp_disp_list):
 def clear_and_draw_car(x_list):
     plt.cla()
     dl = 1  # course tick
-    cx, cy, cyaw, ck = get_straight_course(dl)  # get the straight line
+
+    cx = []
+    cy = []
+    for i in range(ROAD_LENGTH):
+        cx.append(i)
+        cy.append(0)  # get the straight line
+
     plt.plot(cx, cy, "-r", label="course")
     for i in range(NUM_CARS):
-        plot_car(x_list[-1-i], 0, 0, steer=0.0) # plot the cars
+        plot_car(x_list[-1-i]) # plot the cars
 
     plt.axis([0, 300, -50, 50])
     plt.grid(True)
@@ -147,6 +136,7 @@ def velocity_plotter(dt_list, v_list):
 
     for i in range(NUM_CARS):
         plt.plot(dt_list, v_list[i::NUM_CARS], colors[i], label = labels[i])
+
     plt.grid(True)
     plt.axis("equal")
     plt.xlabel("time(s)")
@@ -227,7 +217,7 @@ def animation():
     # Coordinate, velocity and acceleration lists. These are for plotting.
     x_list, v_list, u_list, distance_list, dt_list = old_values_lists()
 
-    for i in range(200):
+    for i in range(ROAD_LENGTH):
         clear_and_draw_car(x_list)
 
         # If the accelartion is different from 0 the velocity for the car should change according to a = dv/dt -> dv = a*dt
@@ -263,4 +253,3 @@ def main():
     animation()
 
 main()
-
