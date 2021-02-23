@@ -3,7 +3,7 @@ import numpy as np
 import math
 import cubic_spline_planner
 
-# Vehicle parameters
+# Vehicle parameters hejhej
 PARA = 1 #Use to minimize the vehicle parameters
 LENGTH = 4.5/PARA  # [m]
 WIDTH = 2.0/PARA  # [m]
