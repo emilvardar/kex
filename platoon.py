@@ -26,7 +26,7 @@ X_START2 = 50.0
 X_START3 = 40.0
 X_START4 = 30.0
 X_START5 = 20.0
-X_START6 = 20.0
+X_START6 = 10.0
 X_START7 = 0.0
 X_LIST = [X_START1, X_START2, X_START3, X_START4, X_START5, X_START6, X_START7]
 
@@ -37,7 +37,7 @@ U_INIT = 0.0 # m/s^2
 V_INIT = 80.0 / 3.6 # 80km/h -> 80/3.6 m/s
 
 # Prediction horizon
-PREDICTION_HORIZON = 500
+PREDICTION_HORIZON = 5
 
 # Split and non-split conditions
 S_NON_SPLIT = X_START6 - X_START7
@@ -98,15 +98,15 @@ def optimization(states):
     #umin, umax, xmin, xmax = create_constraints()
     
     # Cost matrices
-    R = 1.0 * sparse.eye(1)
-    Q = sparse.diags([1,1])
+    R = 10.0 * sparse.eye(1)
+    Q = sparse.diags([0.1,1])
     QN = Q
 
     # Define a for loop here for mult. vehicles
-    x0 = np.array([states[0].deltax - 20, states[0].deltav]) # initial state
+    x0 = np.array([states[0].deltax - 30.0, states[0].deltav]) # initial state
     #print(states[0].deltax)
     #print('hej')
-    xr = np.array([0.0, 0.0]) #Dont know if neccesary (reference state)
+    #xr = np.array([10.0, 0.0]) #Dont know if neccesary (reference state)
     
     # Create two scalar optimization variables.
     u = cp.Variable((NUM_CARS-1, PREDICTION_HORIZON))
@@ -115,18 +115,17 @@ def optimization(states):
     cost = 0.0
 
     for k in range(PREDICTION_HORIZON):
-        cost += cp.quad_form(xr - x[:,k], Q) + cp.quad_form(u[:,k], R)
+        cost += cp.quad_form(x[:,k], Q) + cp.quad_form(u[:,k], R)
         constraints += [x[:,k+1] == Ad@x[:,k] + Bd@u[:,k]]
         #constraints += [xmin <= x[:,k], x[:,k] <= xmax] # doesnt work for some reason
         constraints += [MIN_ACCELERATION <= u[:,k], u[:,k] <= MAX_ACCELERATION]
-    cost += cp.quad_form(x[:,PREDICTION_HORIZON] - xr, QN)
+    cost += cp.quad_form(x[:,PREDICTION_HORIZON], QN)
     
     # Form and solve problem.
     prob = cp.Problem(cp.Minimize(cost), constraints)
-    sol = prob.solve(solver=cp.SCS)
-    #print(sol)
-    #print(u.value[:,0])
-    return u.value[:,0]
+    sol = prob.solve(solver=cp.OSQP)
+    print(u.value)
+    return u[:,0].value
 
 
 def create_constraints():
