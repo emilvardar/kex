@@ -16,10 +16,10 @@ TREAD = 0.7 / PARA  # [m]
 WB = 2.5 / PARA  # [m]
 
 # Road length
-ROAD_LENGTH = 500 # [m]
+ROAD_LENGTH = 300 # [m]
 
 # Start positions
-NUM_CARS = 2  # NUMBER OF CARS
+NUM_CARS = 4  # NUMBER OF CARS
 MAX_CARS = 7
 X_START1 = 60.0
 X_START2 = 50.0
@@ -37,14 +37,14 @@ U_INIT = 0.0 # m/s^2
 V_INIT = 80.0 / 3.6 # 80km/h -> 80/3.6 m/s
 
 # Prediction horizon
-PREDICTION_HORIZON = 5
+PREDICTION_HORIZON = 30
 
 # Split and non-split conditions
 S_NON_SPLIT = X_START6 - X_START7
 S_SPLIT = 2*S_NON_SPLIT
 
 # Constriants
-SAFETY_DISTANCE = 1.
+SAFETY_DISTANCE = 1. + LENGTH
 MAX_VELOCITY = 120 / 3.6  # 120km/h -> 120/3.6 m/s
 MIN_VELOCITY = 60 / 3.6  # 60km/h -> 60/3.6 m/s
 MAX_ACCELERATION = 5  # 5 m/s^2
@@ -69,7 +69,7 @@ class VehicleState:
 
 class State:
     def __init__(self, vehicle_front, vehicle_back):
-        self.deltax = vehicle_front.x - vehicle_back.x 
+        self.deltax = vehicle_front.x - vehicle_back.x
         self.deltav = vehicle_front.v - vehicle_back.v
 
 
@@ -77,10 +77,16 @@ def update_states(veh_states, states, control_signals):
     # updates states for all vehicles
     for i in range(NUM_CARS):
         veh_states[i].x = veh_states[i].x + veh_states[i].v * DT
-        veh_states[i].v = veh_states[i].v + control_signals[-NUM_CARS + i] * DT
+        veh_states[i].v = veh_states[i].v + control_signals[-NUM_CARS + i]* DT
+        """ adding air-drag
+        if i != 0:
+            veh_states[i].v = veh_states[i].v + (control_signals[-NUM_CARS + i] - 0.001*(veh_states[i].v)**2) * DT
+        else:
+            veh_states[i].v = veh_states[i].v + control_signals[-NUM_CARS + i]* DT
+        """
     for i in range(NUM_CARS-1):
-        states[i].deltax =  veh_states[i].x -  veh_states[i+1].x
-        states[i].deltav =  veh_states[i].v -  veh_states[i+1].v
+        states[i].deltax =  veh_states[i].x - veh_states[i+1].x
+        states[i].deltav =  veh_states[i].v - veh_states[i+1].v
     return veh_states, states
 
 
@@ -98,15 +104,24 @@ def optimization(states):
     #umin, umax, xmin, xmax = create_constraints()
     
     # Cost matrices
-    R = 10.0 * sparse.eye(1)
-    Q = sparse.diags([0.1,1])
+    R = 1.0 * sparse.eye(NUM_CARS-1)
+    if NUM_CARS == 2:
+        Q = sparse.diags([10.0, 0.1])
+        xref = [(20.0 + LENGTH), 0.0]
+    elif NUM_CARS == 3:
+        Q = sparse.diags([10.0, 0.1, 10.0, 0.1])
+        xref = [(-10.0 + LENGTH), 0.0, (-10.0 + LENGTH), 0.0]
+    elif NUM_CARS == 4:
+        Q = sparse.diags([10.0, 0.1, 10.0, 0.1, 10., 0.1])
+        xref = [(5.0 + LENGTH), 0.0, (20.0 + LENGTH), 0.0, (5.0 + LENGTH), 0.0]
     QN = Q
 
     # Define a for loop here for mult. vehicles
-    x0 = np.array([states[0].deltax - 30.0, states[0].deltav]) # initial state
-    #print(states[0].deltax)
-    #print('hej')
-    #xr = np.array([10.0, 0.0]) #Dont know if neccesary (reference state)
+    #x0 = np.array([states[0].deltax, states[0].deltav]) # initial state
+    x0 = []
+    for i in range(NUM_CARS-1):
+        x0.append(states[i].deltax)
+        x0.append(states[i].deltav)
     
     # Create two scalar optimization variables.
     u = cp.Variable((NUM_CARS-1, PREDICTION_HORIZON))
@@ -115,16 +130,17 @@ def optimization(states):
     cost = 0.0
 
     for k in range(PREDICTION_HORIZON):
-        cost += cp.quad_form(x[:,k], Q) + cp.quad_form(u[:,k], R)
+        cost += cp.quad_form(x[:,k] - xref, Q) + cp.quad_form(u[:,k], R)
         constraints += [x[:,k+1] == Ad@x[:,k] + Bd@u[:,k]]
-        #constraints += [xmin <= x[:,k], x[:,k] <= xmax] # doesnt work for some reason
-        constraints += [MIN_ACCELERATION <= u[:,k], u[:,k] <= MAX_ACCELERATION]
-    cost += cp.quad_form(x[:,PREDICTION_HORIZON], QN)
+        for i in range(NUM_CARS-1):
+            constraints += [SAFETY_DISTANCE <= x[2*i,k]]
+        constraints += [[MIN_ACCELERATION] <= u[:,k], u[:,k] <= [MAX_ACCELERATION]]
+    cost += cp.quad_form(x[:,PREDICTION_HORIZON] - xref, QN)
     
     # Form and solve problem.
     prob = cp.Problem(cp.Minimize(cost), constraints)
-    sol = prob.solve(solver=cp.OSQP)
-    print(u.value)
+    sol = prob.solve(solver=cp.ECOS)
+    #print(u.value)
     return u[:,0].value
 
 
@@ -137,14 +153,51 @@ def create_constraints():
 
 
 def create_matrices():
-    A = ([
-        [0.,1.],
-        [0.,0.]
-    ])
-    B = ([
-        [0., -1.]
-    ])
-    return A, B
+    if NUM_CARS == 2:
+        A = sparse.csc_matrix([
+            [0.,1.],
+            [0.,0.]
+        ])
+        B = sparse.csc_matrix([
+            [0.], [-1.]
+        ])
+        I = sparse.eye(2)
+    if NUM_CARS == 3:
+        A = sparse.csc_matrix([
+            [0.,1.,0.,0.],
+            [0.,0.,0.,0.],
+            [0.,0.,0.,1.],
+            [0.,0.,0.,0.]
+        ])
+        B = sparse.csc_matrix([
+            [0.,0.], 
+            [-1.,0.],
+            [0.,0.],
+            [1.,-1.]
+        ])
+    if NUM_CARS == 4:
+        A = sparse.csc_matrix([
+            [0.,1.,0.,0.,0.,0.],
+            [0.,0.,0.,0.,0.,0.],
+            [0.,0.,0.,1.,0.,0.],
+            [0.,0.,0.,0.,0.,0.],
+            [0.,0.,0.,0.,0.,1.],
+            [0.,0.,0.,0.,0.,0.]
+        ])
+        B = sparse.csc_matrix([
+            [0.,0.,0.], 
+            [-1.,0.,0.],
+            [0.,0.,0.],
+            [1.,-1.,0.],
+            [0.,0.,0.],
+            [0.,1.,-1.]
+
+        ])
+    I = sparse.eye(2*(NUM_CARS-1))
+
+    Ad = (I + DT*A)
+    Bd =  DT*B
+    return Ad, Bd
 
 
 def plot_car(x, y=0.0, yaw=0.0, steer=0.0, cabcolor="-r", truckcolor="-k"):  # pragma: no cover
@@ -218,7 +271,7 @@ def clear_and_draw_car(states):
     for i in range(NUM_CARS):
         plot_car(states[i].x)  # plot the cars
 
-    plt.axis([0, 500, -50, 50])
+    plt.axis([0, ROAD_LENGTH, -50, 50])
     plt.grid(True)
     plt.pause(0.0001)
 
@@ -285,7 +338,7 @@ def old_values_lists():
     # Distance between the cars at the begining
     distance_list = []
     for i in range(NUM_CARS - 1):
-        distance_list.append(x_list[i] - x_list[i + 1])
+        distance_list.append(x_list[i] - x_list[i + 1] - LENGTH)
 
     # Time list
     dt_list = [0]
@@ -320,7 +373,11 @@ def animation(inital_veh_states, initial_states):
     while 5*MAX_TIME >= time:
         us = MPC(states)
         u_list.append(0)
-        u_list.append(us[0])
+        #u_list.append(time/2)  #leader acc. const
+        #u_list.append(math.sin(time))  #leader acc. sin
+
+        for i in range(NUM_CARS-1):
+            u_list.append(us[i])
         
         clear_and_draw_car(veh_states)
         veh_states, states = update_states(veh_states, states, u_list)
@@ -331,7 +388,7 @@ def animation(inital_veh_states, initial_states):
             x_list.append(veh_states[i].x)
 
         for i in range(NUM_CARS - 1):
-            distance_list.append(veh_states[i].x - veh_states[i+1].x)
+            distance_list.append(veh_states[i].x - veh_states[i+1].x - LENGTH)
 
         # updates time
         time += DT
