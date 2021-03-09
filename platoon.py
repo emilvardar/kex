@@ -19,7 +19,7 @@ WB = 2.5 / PARA  # [m]
 ROAD_LENGTH = 300 # [m]
 
 # Start positions
-NUM_CARS = 4  # NUMBER OF CARS
+NUM_CARS = 2  # NUMBER OF CARS
 MAX_CARS = 7
 X_START1 = 60.0
 X_START2 = 50.0
@@ -105,6 +105,20 @@ def optimization(states):
     
     # Cost matrices
     R = 1.0 * sparse.eye(NUM_CARS-1)
+    
+    '''Mjukkodad Q och xref'''
+    q_vec = []
+    xref = []
+    # Kan även ha if satser i for loopen om man skulle vilja ha olika xref och Q beroende på vilken bil man vill splitta.
+    for i in range(NUM_CARS-1):
+        q_vec.append(10.)
+        q_vec.append(0.1)
+        xref.append(20.+LENGTH)
+        xref.append(0.)
+    Q = sparse.diags(q_vec)
+    QN = Q
+    '''
+    Hardkodad Q och xref
     if NUM_CARS == 2:
         Q = sparse.diags([10.0, 0.1])
         xref = [(20.0 + LENGTH), 0.0]
@@ -115,6 +129,7 @@ def optimization(states):
         Q = sparse.diags([10.0, 0.1, 10.0, 0.1, 10., 0.1])
         xref = [(5.0 + LENGTH), 0.0, (20.0 + LENGTH), 0.0, (5.0 + LENGTH), 0.0]
     QN = Q
+    '''
 
     # Define a for loop here for mult. vehicles
     #x0 = np.array([states[0].deltax, states[0].deltav]) # initial state
@@ -126,15 +141,17 @@ def optimization(states):
     # Create two scalar optimization variables.
     u = cp.Variable((NUM_CARS-1, PREDICTION_HORIZON))
     x = cp.Variable((2*(NUM_CARS-1), PREDICTION_HORIZON+1))
+    # First constraints needs to be the initial state
     constraints = [x[:,0] == x0]
+    # Define the cost function
     cost = 0.0
 
     for k in range(PREDICTION_HORIZON):
-        cost += cp.quad_form(x[:,k] - xref, Q) + cp.quad_form(u[:,k], R)
-        constraints += [x[:,k+1] == Ad@x[:,k] + Bd@u[:,k]]
-        for i in range(NUM_CARS-1):
+        cost += cp.quad_form(x[:,k] - xref, Q) + cp.quad_form(u[:,k], R)    # Add the cost function sum(x^TQx + u^TRu) 
+        constraints += [x[:,k+1] == Ad@x[:,k] + Bd@u[:,k]]                  # Add the system x(k+1) = Ax(k) + Bu(k)
+        for i in range(NUM_CARS-1):                                         # The for loop is for defining safety distance for all cars
             constraints += [SAFETY_DISTANCE <= x[2*i,k]]
-        constraints += [[MIN_ACCELERATION] <= u[:,k], u[:,k] <= [MAX_ACCELERATION]]
+        constraints += [[MIN_ACCELERATION] <= u[:,k], u[:,k] <= [MAX_ACCELERATION]] # Constarints for the acc.
     cost += cp.quad_form(x[:,PREDICTION_HORIZON] - xref, QN)
     
     # Form and solve problem.
