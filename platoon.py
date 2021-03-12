@@ -16,7 +16,7 @@ TREAD = 0.7 / PARA  # [m]
 WB = 2.5 / PARA  # [m]
 
 # Road length
-ROAD_LENGTH = 500 # [m]
+ROAD_LENGTH = 300 # [m]
 
 # Initial acceleration
 U_INIT = 0.0 # m/s^2
@@ -31,17 +31,21 @@ PREDICTION_HORIZON = 20
 
 # Constriants
 SAFETY_DISTANCE = 1. + LENGTH
-MAX_VELOCITY = 120 / 3.6  # 120km/h -> 120/3.6 m/s
-MIN_VELOCITY = 60 / 3.6  # 60km/h -> 60/3.6 m/s
 MAX_ACCELERATION = 5  # 5 m/s^2
 MIN_ACCELERATION = -5 # 10 m/s^2 decleration
-MAX_VEL_DIFF = 20 # m/s
-MIN_VEL_DIFF = -20 # m/s
+MAX_VEL_DIFF = 10 # m/s
+MIN_VEL_DIFF = -10 # m/s
 
 # Max time
 MAX_TIME = 5  # [s]
 # Time step
-DT = 0.5  # [s]
+DT = 0.3  # [s]
+
+# Air drag coeff
+RHO = 1.225 # kg/m^3
+CD = 0.5
+A = 5 # m^2
+PHI = 0.68
 
 class VehicleState:
     """
@@ -75,7 +79,7 @@ def update_states(veh_states, states, control_signals):
     return veh_states, states
 
 
-def mpc(states, xref):
+def mpc(states, xref, split_car):
     """
     heavily inspired by https://www.cvxpy.org/tutorial/intro/index.html
     """
@@ -84,12 +88,17 @@ def mpc(states, xref):
     
     # Cost matrices
     R = 1.0 * sparse.eye(NUM_CARS-1)
-    
+
     q_vec = []
     # Kan även ha if satser i for loopen om man skulle vilja ha olika xref och Q beroende på vilken bil man vill splitta.
     for i in range(NUM_CARS-1):
-        q_vec.append(10.)
-        q_vec.append(0.1)
+        if i+2 == split_car: 
+            q_vec.append(6*10.)
+            q_vec.append(6*0.1)
+        else:
+            q_vec.append(10.)
+            q_vec.append(0.1)            
+    
     Q = sparse.diags(q_vec)
     QN = Q
     # Q will look like F = [10  0           Q = [F  
@@ -116,7 +125,9 @@ def mpc(states, xref):
         constraints += [x[:,k+1] == Ad@x[:,k] + Bd@u[:,k]]                  # Add the system x(k+1) = Ax(k) + Bu(k)
         for i in range(NUM_CARS-1):                                         # The for loop is for defining safety distance for all cars
             constraints += [SAFETY_DISTANCE <= x[2*i,k]]
+            constraints += [MIN_VEL_DIFF <= x[2*i+1,k], x[2*i+1,k] <= MAX_VEL_DIFF]
         constraints += [[MIN_ACCELERATION] <= u[:,k], u[:,k] <= [MAX_ACCELERATION]] # Constarints for the acc.
+
     cost += cp.quad_form(x[:,PREDICTION_HORIZON] - xref, QN)
     
     # Form and solve problem.
@@ -350,7 +361,7 @@ def animation(inital_veh_states, initial_states, split_event, initial_xref):
         if veh_states[split_car-1].x >= split_end_position*0.9:
             xref[2*(split_car-1)] = INIT_DIST + LENGTH #initial_xref[2*(split_car-1)]
 
-        next_control_signals = mpc(states, xref)
+        next_control_signals = mpc(states, xref, split_car)
         u_list.append(0)    # Leader acc. 0 -> vel. const
         #u_list.append(time/2)  #leader acc. const
         #u_list.append(math.sin(time))  #leader acc. sin
