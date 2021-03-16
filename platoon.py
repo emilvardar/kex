@@ -16,7 +16,7 @@ TREAD = 0.7 / PARA  # [m]
 WB = 2.5 / PARA  # [m]
 
 # Road length
-ROAD_LENGTH = 300 # [m]
+ROAD_LENGTH = 500 # [m]
 
 # Initial acceleration
 U_INIT = 0.0 # m/s^2
@@ -31,21 +31,24 @@ PREDICTION_HORIZON = 20
 
 # Constriants
 SAFETY_DISTANCE = 1. + LENGTH
+MAX_VELOCITY = 120 / 3.6  # 120km/h -> 120/3.6 m/s
+MIN_VELOCITY = 60 / 3.6  # 60km/h -> 60/3.6 m/s
 MAX_ACCELERATION = 5  # 5 m/s^2
 MIN_ACCELERATION = -5 # 10 m/s^2 decleration
-MAX_VEL_DIFF = 10 # m/s
-MIN_VEL_DIFF = -10 # m/s
+MAX_VEL_DIFF = 20 # m/s
+MIN_VEL_DIFF = -20 # m/s
 
 # Max time
 MAX_TIME = 5  # [s]
 # Time step
-DT = 0.3  # [s]
+DT = 0.5  # [s]
 
 # Air drag coeff
 RHO = 1.225 # kg/m^3
 CD = 0.5
 A = 5 # m^2
 PHI = 0.68
+WEIGTH_CAR = 2000 # kg 
 
 class VehicleState:
     """
@@ -65,14 +68,13 @@ class State:
 def update_states(veh_states, states, control_signals):
     # updates states for all vehicles
     for i in range(NUM_CARS):
-        veh_states[i].x = veh_states[i].x + veh_states[i].v * DT
-        veh_states[i].v = veh_states[i].v + control_signals[-NUM_CARS + i]* DT
-        """ adding air-drag
+        acc_ad = 0.5 * RHO * A * (veh_states[i].v * veh_states[i].v) * CD / WEIGTH_CAR  # Air drag on vehicle i
         if i != 0:
-            veh_states[i].v = veh_states[i].v + (control_signals[-NUM_CARS + i] - 0.001*(veh_states[i].v)**2) * DT
+            veh_states[i].v = veh_states[i].v + (control_signals[-NUM_CARS + i] - acc_ad) * DT
         else:
             veh_states[i].v = veh_states[i].v + control_signals[-NUM_CARS + i]* DT
-        """
+        veh_states[i].x = veh_states[i].x + veh_states[i].v * DT
+
     for i in range(NUM_CARS-1):
         states[i].deltax =  veh_states[i].x - veh_states[i+1].x
         states[i].deltav =  veh_states[i].v - veh_states[i+1].v
@@ -88,13 +90,13 @@ def mpc(states, xref, split_car):
     
     # Cost matrices
     R = 1.0 * sparse.eye(NUM_CARS-1)
-
+    
     q_vec = []
     # Kan även ha if satser i for loopen om man skulle vilja ha olika xref och Q beroende på vilken bil man vill splitta.
     for i in range(NUM_CARS-1):
         if i+2 == split_car: 
-            q_vec.append(6*10.)
-            q_vec.append(6*0.1)
+            q_vec.append(3*10.)
+            q_vec.append(3*0.1)
         else:
             q_vec.append(10.)
             q_vec.append(0.1)            
@@ -125,9 +127,7 @@ def mpc(states, xref, split_car):
         constraints += [x[:,k+1] == Ad@x[:,k] + Bd@u[:,k]]                  # Add the system x(k+1) = Ax(k) + Bu(k)
         for i in range(NUM_CARS-1):                                         # The for loop is for defining safety distance for all cars
             constraints += [SAFETY_DISTANCE <= x[2*i,k]]
-            constraints += [MIN_VEL_DIFF <= x[2*i+1,k], x[2*i+1,k] <= MAX_VEL_DIFF]
         constraints += [[MIN_ACCELERATION] <= u[:,k], u[:,k] <= [MAX_ACCELERATION]] # Constarints for the acc.
-
     cost += cp.quad_form(x[:,PREDICTION_HORIZON] - xref, QN)
     
     # Form and solve problem.
@@ -360,14 +360,6 @@ def animation(inital_veh_states, initial_states, split_event, initial_xref):
         # Returns the positional reference back to normal when "end" position is reached
         if veh_states[split_car-1].x >= split_end_position*0.9:
             xref[2*(split_car-1)] = INIT_DIST + LENGTH #initial_xref[2*(split_car-1)]
-
-        next_control_signals = mpc(states, xref, split_car)
-        u_list.append(0)    # Leader acc. 0 -> vel. const
-        #u_list.append(time/2)  #leader acc. const
-        #u_list.append(math.sin(time))  #leader acc. sin
-
-        for i in range(NUM_CARS-1):
-            u_list.append(next_control_signals[i])
         
         clear_and_draw_car(veh_states)
         veh_states, states = update_states(veh_states, states, u_list)
@@ -377,8 +369,16 @@ def animation(inital_veh_states, initial_states, split_event, initial_xref):
             v_list.append(veh_states[i].v)
             x_list.append(veh_states[i].x)
 
+        next_control_signals = mpc(states, xref, split_car)
+        u_list.append(0)    # Leader acc. 0 -> vel. const
+        #u_list.append(time/2)  #leader acc. const
+        #u_list.append(math.sin(time))  #leader acc. sin
+
         for i in range(NUM_CARS - 1):
             distance_list.append(veh_states[i].x - veh_states[i+1].x - LENGTH)
+
+        for i in range(NUM_CARS-1):
+            u_list.append(next_control_signals[i])
 
         # Updates time
         time += DT
