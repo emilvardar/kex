@@ -94,9 +94,10 @@ def mpc(states, xref, split_car):
     q_vec = []
     # Kan även ha if satser i for loopen om man skulle vilja ha olika xref och Q beroende på vilken bil man vill splitta.
     for i in range(NUM_CARS-1):
-        if i+2 == split_car: 
-            q_vec.append(3*10.)
-            q_vec.append(3*0.1)
+        if i+2 == split_car:
+            m = 3 
+            q_vec.append(m*10.)
+            q_vec.append(m*0.1)
         else:
             q_vec.append(10.)
             q_vec.append(0.1)            
