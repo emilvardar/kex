@@ -102,13 +102,13 @@ def mpc(veh_states, xref, split_car, last_ref_in_mpc, split_distance, drag_or_no
 
     for k in range(PREDICTION_HORIZON):
         cost += cp.quad_form(x[:,k] - xref, Q) + cp.quad_form(u[:,k], R)    # Add the cost function sum(x^TQx + u^TRu) 
-        constraints += [x[:,k+1] == Ad@x[:,k] + Bd@u[:,k] + Dd]                  # Add the system x(k+1) = Ax(k) + Bu(k)
+        constraints += [x[:,k+1] == Ad@x[:,k] + Bd@u[:,k] + Dd]                  # Add the system x(k+1) = Ad*x(k) + Bd*u(k) + Dd
         for i in range(NUM_CARS):                                         # The for loop is for defining safety distance for all cars
             constraints += [MIN_VEL <= x[NUM_CARS-1+i,k], x[NUM_CARS-1+i,k] <= MAX_VEL]
             if i != NUM_CARS-1:
                 constraints += [SAFETY_DISTANCE <= x[i,k]]
                 if k >= (PREDICTION_HORIZON - last_ref_in_mpc) and hard_split:
-                    constraints += [[split_distance + LENGTH] <= x[split_car-1,k]] 
+                    constraints += [[split_distance + LENGTH + 1] <= x[split_car-1,k]] 
         constraints += [[MIN_ACCELERATION] <= u[:,k], u[:,k] <= [MAX_ACCELERATION]] # Constarints for the acc.
 
     # Form and solve problem.
@@ -297,12 +297,13 @@ def acceleration_plotter(dt_list, u_list):
     plt.show()
 
 
-def distance_plotter(dt_list, distance_list):
+def distance_plotter(dt_list, distance_list, xref_list,split_car):
     plt.subplots(1)
     colors = ['-b', '-g', '-r', '-c', '-m', '-y', '-k']
     labels = ['Δ12', 'Δ23', 'Δ34', 'Δ45', 'Δ56', 'Δ67']
     for i in range(NUM_CARS - 1):
         plt.plot(dt_list, distance_list[i::NUM_CARS - 1], colors[i%7], label=('Δ' + str(i+1) + str(i+2)))
+    plt.plot(dt_list, xref_list, '--k', label=("REF Δ" + str(split_car) + str(split_car+1)))
     plt.grid(True)
     plt.axis('equal')
     plt.xlabel("time(s)")
@@ -334,6 +335,8 @@ def old_values_lists():
     v_list = []
     # Initial accelerations
     u_list = []
+
+
     for i in range(NUM_CARS):
         x_list.append(X_LIST[i])
         v_list.append(V_INIT)
@@ -375,10 +378,10 @@ def renew_x_and_v(veh_states, x_list, v_list, distance_list):
     return x_list, v_list, distance_list
 
 
-def plot_graphs(v_list, distance_list, u_list, x_list, dt_list):
+def plot_graphs(v_list, distance_list, u_list, x_list, dt_list, xref_list, split_car):
     # Creating plots for velocity, distance, acceleration and position
     velocity_plotter(dt_list, v_list)
-    distance_plotter(dt_list, distance_list)
+    distance_plotter(dt_list, distance_list, xref_list, split_car)
     acceleration_plotter(dt_list, u_list)
     position_plotter(dt_list, x_list)
 
@@ -399,6 +402,8 @@ def animation(inital_veh_states, split_event, initial_xref):
     split_ready = float(split_event[2])
     drag_or_not = split_event[3]
 
+    xref_list = [initial_xref[split_car-1]-LENGTH]
+
     # The simulation is done in this while-loop
     time = 0.0
     try_split = True
@@ -407,9 +412,9 @@ def animation(inital_veh_states, split_event, initial_xref):
         # Check if the prediction horizone can see the split position
         if (time + DT*PREDICTION_HORIZON) >= split_ready and try_split == True:
             last_ref_in_mpc = (time + PREDICTION_HORIZON * DT - split_ready)//DT     # How many of the last prediction horizone should have the hard constrain on the distance
-            if time >= split_ready - 1*DT: # If time is bigger than 2 time steps
+            if time >= split_ready - 1*DT: # If time is bigger than 1 time steps
                 hard_split = False
-            if time >= split_ready - 2*DT: # Change the ref 1 second before
+            if time >= split_ready - 2*DT: # Change the ref 2 time steps before
                 xref[split_car-1] = split_distance + LENGTH     # Fix the reference for the car we want to split
         else:
             print(time)
@@ -422,6 +427,8 @@ def animation(inital_veh_states, split_event, initial_xref):
         veh_states = update_states(veh_states, u_list, drag_or_not)          # Renew the vehicle states a for MPC
         x_list, v_list, distance_list = renew_x_and_v(veh_states, x_list, v_list, distance_list)
 
+        xref_list.append(xref[split_car-1]-LENGTH)
+
         # Updates time
         time += DT
         dt_list.append(time)
@@ -430,7 +437,7 @@ def animation(inital_veh_states, split_event, initial_xref):
         if veh_states[0].x >= ROAD_LENGTH:
             break
 
-    plot_graphs(v_list, distance_list, u_list, x_list, dt_list)
+    plot_graphs(v_list, distance_list, u_list, x_list, dt_list, xref_list, split_car)
 
 
 def pos_list_create():
@@ -468,7 +475,7 @@ def main():
 
     for i in range(NUM_CARS):
         initial_veh_states.append(VehicleState(X_LIST[i], V_INIT))
-        initial_xref[NUM_CARS-1+i] = 0.0    # The velocity differnece at the beginning
+        initial_xref[NUM_CARS-1+i] = V_INIT    # The velocity differnece at the beginning
 
     for i in range(NUM_CARS-1):
         initial_xref[i] = (initial_veh_states[i].x - initial_veh_states[i+1].x) # The distance betwenn the vehicles at the star
