@@ -16,7 +16,7 @@ TREAD = 0.7 / PARA  # [m]
 WB = 2.5 / PARA  # [m]
 
 # Road length
-ROAD_LENGTH = 400 # [m]
+ROAD_LENGTH = 500 # [m]
 
 # Initial acceleration
 U_INIT = 0.0 # m/s^2
@@ -34,7 +34,7 @@ SAFETY_DISTANCE = 1. + LENGTH
 MAX_ACCELERATION = 5  # 5 m/s^2
 MIN_ACCELERATION = -10 # 10 m/s^2 decleration
 MAX_VEL = 120/3.6 # m/s
-MIN_VEL = 80/3.6 # m/s
+MIN_VEL = 60/3.6 # m/s
 
 # Max time
 MAX_TIME = 5  # [s]
@@ -57,55 +57,36 @@ class VehicleState:
         self.v = v
 
 
-def update_states(veh_states, control_signals):
+def update_states(veh_states, control_signals, drag_or_not):
     # updates states for all vehicles
-    ''' Får ingen översläng när air drag läggs till och det blir även fel ibland med splittningen. Dvs splittningen påbörjar och sedan måste 
-    komma till baka till start positionen för att den fattar efter ett tag att det inte går(t.ex. vid 60 meter). I det ideala fallet så blir 
-    det en liten översläng och det blir aldirg fel med splittningen(påbörjas aldrig om den inte kan lösa det).
-    '''
-    '''
-    # Ideal cond.
-    for i in range(NUM_CARS):
-        veh_states[i].x = veh_states[i].x + veh_states[i].v * DT
-        veh_states[i].v = veh_states[i].v + control_signals[-NUM_CARS + i]* DT
-    '''
-    # Air drag cond.
-    for i in range(NUM_CARS):
-        if i != 0:
-            CD_distance = CD * (1 - (13.41 / (23.53 + (veh_states[i-1].x - veh_states[i].x)))) # states ska bort byt till veh_states
-            acc_ad = 0.5 * RHO * AREA * (veh_states[i].v * veh_states[i].v) * CD_distance / WEIGTH_VEH  # Air drag on vehicle i
-            veh_states[i].v = veh_states[i].v + (control_signals[-NUM_CARS + i] - acc_ad) * DT
-        else:
+    if drag_or_not == '0':
+        # Ideal situation
+        for i in range(NUM_CARS):
+            veh_states[i].x = veh_states[i].x + veh_states[i].v * DT
             veh_states[i].v = veh_states[i].v + control_signals[-NUM_CARS + i]* DT
-        veh_states[i].x = veh_states[i].x + veh_states[i].v * DT 
-    
-
+    else:
+        # Air drag cond.
+        for i in range(NUM_CARS):
+            veh_states[i].x = veh_states[i].x + veh_states[i].v * DT 
+            if i != 0:
+                CD_distance = CD * (1 - (13.41 / (23.53 + (veh_states[i-1].x - veh_states[i].x)))) # states ska bort byt till veh_states
+                acc_ad = 0.5 * RHO * AREA * (veh_states[i].v ** 2) * CD_distance / WEIGTH_VEH  # Air drag on vehicle i, which depends on the distance to preeceding vehicle
+                veh_states[i].v = veh_states[i].v + (control_signals[-NUM_CARS + i] - acc_ad) * DT
+            else:
+                veh_states[i].v = veh_states[i].v + control_signals[-NUM_CARS + i]* DT
     return veh_states
     
 
-def mpc(veh_states, xref, split_car, last_ref_in_mpc, split_distance):
+def mpc(veh_states, xref, split_car, last_ref_in_mpc, split_distance, drag_or_not, hard_split):
     """
     heavily inspired by https://www.cvxpy.org/tutorial/intro/index.html
     """
-    Ad, Bd, Dd = create_matrices_linear(veh_states)
-    
-    # Cost matrices
-    R = 1.0 * sparse.eye(NUM_CARS-1)
+    if drag_or_not == '1':
+        Ad, Bd, Dd = create_matrices_linear(veh_states)
+    else:
+        Ad, Bd, Dd = create_matrices()
+    Q, R = cost_matrices(split_car)
 
-    q_vec = [0]*(2*NUM_CARS-1)
-    # Kan även ha if satser i for loopen om man skulle vilja ha olika xref och Q beroende på vilken bil man vill splitta.
-    for i in range(NUM_CARS):
-
-        if i != NUM_CARS-1:
-            q_vec[i] = 10.0
-        q_vec[i+NUM_CARS-1] = 0.1
-        if i == split_car-1:
-                q_vec[i] = 3*10.0
-
-    Q = sparse.diags(q_vec)
-    QN = Q
-    
-    # Define a for loop here for mult. vehicles
     x0 = []
     for i in range(NUM_CARS-1):
         x0.append(veh_states[i].x - veh_states[i+1].x)
@@ -115,27 +96,21 @@ def mpc(veh_states, xref, split_car, last_ref_in_mpc, split_distance):
     # Create two scalar optimization variables.
     u = cp.Variable((NUM_CARS-1, PREDICTION_HORIZON))
     x = cp.Variable((2*NUM_CARS-1, PREDICTION_HORIZON+1))
-    # First constraints needs to be the initial state
-    constraints = [x[:,0] == x0]
-    # Define the cost function
-    cost = 0.0
+    
+    constraints = [x[:,0] == x0] # First constraints needs to be the initial state
+    cost = 0.0 # Define the cost function
 
     for k in range(PREDICTION_HORIZON):
         cost += cp.quad_form(x[:,k] - xref, Q) + cp.quad_form(u[:,k], R)    # Add the cost function sum(x^TQx + u^TRu) 
-        
         constraints += [x[:,k+1] == Ad@x[:,k] + Bd@u[:,k] + Dd]                  # Add the system x(k+1) = Ax(k) + Bu(k)
         for i in range(NUM_CARS):                                         # The for loop is for defining safety distance for all cars
             constraints += [MIN_VEL <= x[NUM_CARS-1+i,k], x[NUM_CARS-1+i,k] <= MAX_VEL]
             if i != NUM_CARS-1:
                 constraints += [SAFETY_DISTANCE <= x[i,k]]
-                if k >= (PREDICTION_HORIZON - last_ref_in_mpc):
-                    constraints += [[split_distance + LENGTH] <= x[split_car-1,k]]  # -INTERVAL finns med för att skapa ett intervall
-
+                if k >= (PREDICTION_HORIZON - last_ref_in_mpc) and hard_split:
+                    constraints += [[split_distance + LENGTH] <= x[split_car-1,k]] 
         constraints += [[MIN_ACCELERATION] <= u[:,k], u[:,k] <= [MAX_ACCELERATION]] # Constarints for the acc.
 
-
-    cost += cp.quad_form(x[:,PREDICTION_HORIZON] - xref, QN)
-    
     # Form and solve problem.
     prob = cp.Problem(cp.Minimize(cost), constraints)
     sol = prob.solve(solver=cp.ECOS)
@@ -143,15 +118,28 @@ def mpc(veh_states, xref, split_car, last_ref_in_mpc, split_distance):
     return u[:,0].value
 
 
-def create_matrices():
+def cost_matrices(split_car):
+    # Cost matrices
+    R = 1.0 * sparse.eye(NUM_CARS-1)
+    q_vec = [0]*(2*NUM_CARS-1)
+    # Kan även ha if satser i for loopen om man skulle vilja ha olika xref och Q beroende på vilken bil man vill splitta.
+    for i in range(NUM_CARS):
+        if i != NUM_CARS-1:
+            q_vec[i] = 10.0
+        q_vec[i+NUM_CARS-1] = 0.1
+        if i == split_car-1:
+            q_vec[i] = 3*10.0
+    Q = sparse.diags(q_vec)
+    return Q, R
 
+
+def create_matrices():
     # Define dimentions for A and B matrices
     A = np.zeros((2*NUM_CARS-1,2*NUM_CARS-1))
     B = np.zeros((2*NUM_CARS-1,(NUM_CARS-1)))
-    D = np.zeros((2*NUM_CARS-1,1))
+    D = np.zeros(2*NUM_CARS-1)
 
     for i in range(NUM_CARS-1):
-
         A[i,NUM_CARS-1+i] = 1
         A[i,NUM_CARS+i] = -1
 
@@ -171,11 +159,10 @@ def create_matrices_linear(veh_states):
     # Define dimentions for A and B matrices
     A = np.zeros((2*NUM_CARS-1,2*NUM_CARS-1))
     B = np.zeros((2*NUM_CARS-1,(NUM_CARS-1)))
-    D = [0]*(2*NUM_CARS-1)#np.zeros((2*NUM_CARS-1,1))
+    D = np.zeros(2*NUM_CARS-1)
 
     for i in range(NUM_CARS-1):
-
-        S, R, Q = deltax_velocity_dependence(veh_states,i)
+        S, R, Q = deltax_velocity_dependence(veh_states,i)   # i=0 --> s2, r2, q2, [in comp. s1, r1, q1] i==1 --> s3, r3, q3
 
         A[i,NUM_CARS-1+i] = 1
         A[i,NUM_CARS+i] = -1
@@ -183,7 +170,6 @@ def create_matrices_linear(veh_states):
         A[NUM_CARS+i,NUM_CARS+i] = R
 
         B[NUM_CARS+i,i] = 1
-
         D[NUM_CARS+i] = Q
 
     # Identity matrix
@@ -192,15 +178,14 @@ def create_matrices_linear(veh_states):
     # Discretize A and B matrices
     Ad = (I + DT*A)
     Bd =  DT*B
-    Dd = D
+    Dd = DT*D
     return Ad, Bd, Dd
 
 
 def deltax_velocity_dependence(veh_states,i):
-
-    R = -K * veh_states[i+1].v * (1 - 13.41/(23.53 + veh_states[i].x - veh_states[i+1].x))
-    S = -K/2 * (veh_states[i].x - veh_states[i+1].x) * veh_states[i+1].v ** 2 * (13.41/(23.53 + veh_states[i].x - veh_states[i+1].x) ** 2)
-    Q = -K/2 * veh_states[i+1].v ** 2 * ((veh_states[i].x - veh_states[i+1].x) * (13.41/(23.53 + veh_states[i].x - veh_states[i+1].x) ** 2) - 
+    R = -K * veh_states[i+1].v * (1 - 13.41/(23.53 + veh_states[i].x - veh_states[i+1].x)) # i+1 because when it is been sending to this func. the input is i e.g i=0 but we then need for the second vehicle which is i=1 actualy.
+    S = -K/2 * (veh_states[i+1].v ** 2) * (13.41/((23.53 + (veh_states[i].x - veh_states[i+1].x)) ** 2))
+    Q = -K/2 * (veh_states[i+1].v**2) * ((veh_states[i].x - veh_states[i+1].x) * (13.41/((23.53 + veh_states[i].x - veh_states[i+1].x) ** 2)) - 
                                         (1 - 13.41/(23.53 + veh_states[i].x - veh_states[i+1].x)))
     return R, S, Q
 
@@ -412,25 +397,29 @@ def animation(inital_veh_states, split_event, initial_xref):
     split_car = int(split_event[0])
     split_distance = int(split_event[1])
     split_ready = float(split_event[2])
+    drag_or_not = split_event[3]
 
     # The simulation is done in this while-loop
     time = 0.0
     try_split = True
+    hard_split = True
     while 5*MAX_TIME >= time:
-        
         # Check if the prediction horizone can see the split position
         if (time + DT*PREDICTION_HORIZON) >= split_ready and try_split == True:
-            last_ref_in_mpc = (time + PREDICTION_HORIZON * DT - split_ready)//DT +1     # How many of the last prediction horizone should have the hard constrain on the distance
-            if time >= split_ready:
+            last_ref_in_mpc = (time + PREDICTION_HORIZON * DT - split_ready)//DT     # How many of the last prediction horizone should have the hard constrain on the distance
+            if time >= split_ready - 1*DT: # If time is bigger than 2 time steps
+                hard_split = False
+            if time >= split_ready - 2*DT: # Change the ref 1 second before
                 xref[split_car-1] = split_distance + LENGTH     # Fix the reference for the car we want to split
         else:
+            print(time)
             xref[split_car-1] = INIT_DIST + LENGTH #initial_xref[2*(split_car-1)]
-            last_ref_in_mpc = -1     # None of the predictione horizone should have the distance as hard constrain
+            last_ref_in_mpc = 1     # None of the predictione horizone should have the distance as hard constrain
         
-        next_control_signals = mpc(veh_states, xref, split_car, last_ref_in_mpc, split_distance)
+        next_control_signals = mpc(veh_states, xref, split_car, last_ref_in_mpc, split_distance, drag_or_not, hard_split)
         u_list, try_split = renew_acc(u_list, try_split, next_control_signals)  # Renew the acceleration list 
         clear_and_draw_car(veh_states)                                          # Draw the cars on the simulation
-        veh_states = update_states(veh_states, u_list)          # Renew the vehicle states a for MPC
+        veh_states = update_states(veh_states, u_list, drag_or_not)          # Renew the vehicle states a for MPC
         x_list, v_list, distance_list = renew_x_and_v(veh_states, x_list, v_list, distance_list)
 
         # Updates time
@@ -465,6 +454,9 @@ def split_event_finder():
     split_event.append(input("Split behind vehicle: "))
     split_event.append(input("Split distance: "))
     split_event.append(input("Split end position give in time: "))
+    split_event.append(input('To simulate with air drag press 1 else 0: '))
+    while split_event[-1] != '0' and split_event[-1] != '1':
+        split_event[-1] = input('To simulate with air drag press 1 else 0: ')
     return split_event
 
 
