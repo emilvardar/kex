@@ -4,6 +4,7 @@ import math
 import cvxpy as cp
 import scipy as sp
 from scipy import sparse
+import warnings
 
 # Vehicle parameters
 PARA = 1  # Use to minimize the vehicle parameters
@@ -16,7 +17,7 @@ TREAD = 0.7 / PARA  # [m]
 WB = 2.5 / PARA  # [m]
 
 # Road length
-ROAD_LENGTH = 500 # [m]
+ROAD_LENGTH = 700 # [m]
 
 # Initial acceleration
 U_INIT = 0.0 # m/s^2
@@ -108,12 +109,13 @@ def mpc(veh_states, xref, split_car, last_ref_in_mpc, split_distance, drag_or_no
             if i != NUM_CARS-1:
                 constraints += [SAFETY_DISTANCE <= x[i,k]]
                 if k >= (PREDICTION_HORIZON - last_ref_in_mpc) and hard_split:
-                    constraints += [[split_distance + LENGTH + 1] <= x[split_car-1,k]] 
+                    constraints += [[split_distance + LENGTH + 2.] <= x[split_car-1,k]] 
         constraints += [[MIN_ACCELERATION] <= u[:,k], u[:,k] <= [MAX_ACCELERATION]] # Constarints for the acc.
 
     # Form and solve problem.
     prob = cp.Problem(cp.Minimize(cost), constraints)
     sol = prob.solve(solver=cp.ECOS)
+    warnings.filterwarnings("ignore")
     #print(u.value)
     return u[:,0].value
 
@@ -417,9 +419,8 @@ def animation(inital_veh_states, split_event, initial_xref):
             if time >= split_ready - 2*DT: # Change the ref 2 time steps before
                 xref[split_car-1] = split_distance + LENGTH     # Fix the reference for the car we want to split
         else:
-            print(time)
             xref[split_car-1] = INIT_DIST + LENGTH #initial_xref[2*(split_car-1)]
-            last_ref_in_mpc = 1     # None of the predictione horizone should have the distance as hard constrain
+            last_ref_in_mpc = 0     # None of the predictione horizone should have the distance as hard constrain
         
         next_control_signals = mpc(veh_states, xref, split_car, last_ref_in_mpc, split_distance, drag_or_not, hard_split)
         u_list, try_split = renew_acc(u_list, try_split, next_control_signals)  # Renew the acceleration list 
@@ -460,6 +461,9 @@ def split_event_finder():
     split_event = []    
     split_event.append(input("Split behind vehicle: "))
     split_event.append(input("Split distance: "))
+    #while int(split_event[-1]) > 50:
+    #    split_event[-1] = input('''Given split distance is too big. Split distance bigger than 50 is better to be defined such as 2 different platoons
+    #    which is beyond the scope of this thesis. Thus please give a distance less than 50 meter:''')
     split_event.append(input("Split end position give in time: "))
     split_event.append(input('To simulate with air drag press 1 else 0: '))
     while split_event[-1] != '0' and split_event[-1] != '1':
