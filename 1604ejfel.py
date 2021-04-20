@@ -41,7 +41,7 @@ SAFETY_DISTANCE = 1. + LENGTH # Albin --> Enligt Energy savings from an Eco-Coop
 MAX_ACCELERATION = 5  # 5 m/s^2
 MIN_ACCELERATION = -10 # 10 m/s^2 decleration
 MAX_VEL = 120/3.6 # m/s Albin --> Enligt Energy savings from an Eco-Cooperative Adaptive Cruise Control: a BEV platoon investigation så har de max 144 och min 0 kph så vår är ju i så fall skitbra
-MIN_VEL = 50/3.6 # m/s
+MIN_VEL = 40/3.6 # m/s
 
 # Max time
 MAX_TIME = 200  # [s]
@@ -335,10 +335,10 @@ def velocity_plotter(dt_list, v_list):
         plt.plot(dt_list, v_list[i::NUM_CARS], colors[i%7], label=('v' + str(i+1)))
 
     plt.grid(True)
-    plt.axis("equal")
-    plt.xlabel("Time(s)")
-    plt.ylabel("Velocity(kph)")
-    plt.legend()
+    #plt.axis("equal")
+    plt.xlabel("Time(s)", fontsize = 15)
+    plt.ylabel("Velocity(kph)", fontsize = 15)
+    plt.legend(prop={'size': 15})
     plt.show()
 
 
@@ -349,10 +349,10 @@ def acceleration_plotter(dt_list, u_list):
     for i in range(NUM_CARS):
         plt.plot(dt_list, u_list[i::NUM_CARS], colors[i%7], label=('u' + str(i+1)))
     plt.grid(True)
-    plt.axis("equal")
-    plt.xlabel("Time(s)")
-    plt.ylabel("Control signal(m/s^2)")
-    plt.legend()
+    #plt.axis("equal")
+    plt.xlabel("Time(s)", fontsize = 15)
+    plt.ylabel("Control signal(m/s^2)", fontsize = 15)
+    plt.legend(prop={'size': 15})
     plt.show()
 
 
@@ -364,10 +364,10 @@ def distance_plotter(dt_list, distance_list, xref_list,split_car):
         plt.plot(dt_list, distance_list[i::NUM_CARS - 1], colors[i%7], label=('Δ' + str(i+1) + str(i+2)))
     plt.plot(dt_list, xref_list, '--k', label=("REF Δ" + str(split_car) + str(split_car+1)))
     plt.grid(True)
-    plt.axis('equal')
-    plt.xlabel("Time(s)")
-    plt.ylabel("Distance between vehciles(m)")
-    plt.legend()
+    #plt.axis('equal')
+    plt.xlabel("Time(s)", fontsize = 15)
+    plt.ylabel("Distance between vehciles(m)", fontsize = 15)
+    plt.legend(prop={'size': 15})
     plt.show()
 
 
@@ -378,9 +378,9 @@ def position_plotter(dt_list, x_list):
     for i in range(NUM_CARS):
         plt.plot(dt_list, x_list[i::NUM_CARS], colors[i%7], label=('x' + str(i+1)))
     plt.grid(True)
-    plt.xlabel("Time(s)")
-    plt.ylabel("Position(m)")
-    plt.legend()
+    plt.xlabel("Time(s)", fontsize = 15)
+    plt.ylabel("Position(m)", fontsize = 15)
+    plt.legend(prop={'size': 15})
     plt.show()
 
 
