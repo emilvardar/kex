@@ -41,10 +41,10 @@ SAFETY_DISTANCE = 1. + LENGTH # Albin --> Enligt Energy savings from an Eco-Coop
 MAX_ACCELERATION = 5  # 5 m/s^2
 MIN_ACCELERATION = -10 # 10 m/s^2 decleration
 MAX_VEL = 120/3.6 # m/s Albin --> Enligt Energy savings from an Eco-Cooperative Adaptive Cruise Control: a BEV platoon investigation så har de max 144 och min 0 kph så vår är ju i så fall skitbra
-MIN_VEL = 40/3.6 # m/s
+MIN_VEL = 50/3.6 # m/s
 
 # Max time
-MAX_TIME = 40  # [s]
+MAX_TIME = 200  # [s]
 
 # Time step
 DT = 0.2  # [s]
@@ -99,7 +99,10 @@ def mpc(veh_states, xref, split_car, last_ref_in_mpc, split_distance, drag_or_no
     """
     # Even if air drag has been choosen the first mpc needs to calculate with A and B matrices for the ideal case
     Ad, Bd, Dd = create_matrices()  # Create A, B and D matrices for the ideal case
-    Q, R = cost_matrices(split_car)
+    if veh_states[split_car-1].x- veh_states[split_car].x <= split_distance: #veh_states[split_car-1].x - veh_states[split_car].x >= split_distance/2 and veh_states[split_car-1].x - veh_states[split_car].x <= split_distance:
+        Q, R = cost_matrices(split_car, 'velocity_heavy')   #velocity has a higher cost
+    else:
+        Q, R = cost_matrices(split_car, 'distance_heavy')   #distance has a higher cost
     QN = Q
 
     x0 = []
@@ -138,25 +141,29 @@ def mpc(veh_states, xref, split_car, last_ref_in_mpc, split_distance, drag_or_no
     return u[:,0].value, x.value  
 
 
-def cost_matrices(split_car):
+def cost_matrices(split_car, part):
     # Cost matrices
-    # R = 1.0 * sparse.eye(NUM_CARS-1)
-    'Albin --> Har ändrat R till följande'
+    
     r_vec = []
     for i in range(NUM_CARS-1):
         r_vec.append(1.0)
+
         if (i == split_car-2) or (i == split_car-1): # Make the preceeding splitting vehicle's control signal more important(-2) Make the splitting vehicle's control signal(-1) more important
             r_vec[-1] = 10
+
     R = sparse.diags(r_vec)
     
     q_vec = [0]*(2*NUM_CARS-1)
     for i in range(NUM_CARS):
+
         if i != NUM_CARS-1:
             q_vec[i] = 10.0
+
         q_vec[i+NUM_CARS-1] = 1.0
+
         if i == split_car-1:
             q_vec[i] = 4*10.0
-            # q_vec[i-1] = 3*10.0 # Detta kan användas för att hålla avståndet framför splittens 2 bilar mer stabilt. Tex så att bil 1 och 2 inte kommer
+            q_vec[i-1] = 3*10.0 # Detta kan användas för att hålla avståndet framför splittens 2 bilar mer stabilt. Tex så att bil 1 och 2 inte kommer
             # för närma varandra när bil 2 och 3 ska splittas. 
     Q = sparse.diags(q_vec)
     return Q, R
@@ -292,7 +299,7 @@ def plot_car(x, y=0.0, yaw=0.0, steer=0.0, cabcolor="-r", truckcolor="-k"):  # p
              np.array(ml_wheel[1, :]).flatten(), truckcolor)
     plt.plot(np.array(mr_wheel[0, :]).flatten(),
              np.array(mr_wheel[1, :]).flatten(), truckcolor)             
-    plt.plot(x, y, "*")
+    plt.plot(x+5, y, "*")
 
 
 def clear_and_draw_car(states, k_old, x_last):
@@ -476,7 +483,6 @@ def animation(inital_veh_states, split_event, initial_xref):
         xref_list.append(xref[split_car-1]-LENGTH)
 
         if try_split == False and ((veh_states[split_car-1].x - veh_states[split_car].x - LENGTH) > split_distance-1) and time <= split_ready - DT:
-            print('FUCK')
             try_split = True # If the split has been accomplished in that second even though the mpc could not calculate do not get back to initial position
         if try_split == False and ((veh_states[split_car-1].x - veh_states[split_car].x) < split_distance-1) and time >= split_ready and printer:
             print('The split could not been accomplished. Thus the split canceled.')
@@ -497,6 +503,7 @@ def animation(inital_veh_states, split_event, initial_xref):
 def program_is_done(u_list):
     done = True
     for i in range(3*NUM_CARS-1):
+        abs(u_list[-3*NUM_CARS+i])
         if abs(u_list[-3*NUM_CARS+i]) < 0.1: # Look element wise
             done = done and True 
         else:
