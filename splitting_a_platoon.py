@@ -14,7 +14,7 @@ import warnings
 
 # Vehicle parameters
 LENGTH = 12.0  # [m]
-WIDTH = 2.0  # [m]
+WIDTH = 3.0  # [m]
 BACKTOWHEEL = 1.0  # [m]
 WHEEL_LEN = 0.3  # [m]
 WHEEL_WIDTH = 0.2  # [m]
@@ -31,7 +31,7 @@ U_INIT = 0.0 # m/s^2
 INIT_DIST = 10.0    # Initial distance between the cars
 
 # Initial velocity
-V_INIT = 90.0 / 3.6 # 90km/h -> 100/3.6 m/s
+V_INIT = 90.0 / 3.6 # 90km/h -> 90/3.6 m/s
 
 # Prediction horizon
 PREDICTION_HORIZON = 30
@@ -61,6 +61,8 @@ AREA = 6 # m^2
 WEIGTH_VEH = 40000.0 # kg
 K = RHO*AREA*CD/WEIGTH_VEH
 
+SIZE = 20 # Label size
+
 '''
 'Albin' --> Diskutera med Albin
 Svenska --> ställen jag har skrivit på svenska som vi kan tabort sist
@@ -77,7 +79,7 @@ class VehicleState:
 
 def update_states(veh_states, control_signals, drag_or_not):
     # updates states for all vehicles
-    if drag_or_not == '0':
+    if drag_or_not == 0:
         # Ideal situation
         for i in range(NUM_CARS):
             veh_states[i].x = veh_states[i].x + veh_states[i].v * DT
@@ -99,10 +101,8 @@ def mpc(veh_states, xref, split_car, last_ref_in_mpc, split_distance, drag_or_no
     """
     # Even if air drag has been choosen the first mpc needs to calculate with A and B matrices for the ideal case
     Ad, Bd, Dd = create_matrices()  # Create A, B and D matrices for the ideal case
-    if veh_states[split_car-1].x- veh_states[split_car].x <= split_distance: #veh_states[split_car-1].x - veh_states[split_car].x >= split_distance/2 and veh_states[split_car-1].x - veh_states[split_car].x <= split_distance:
-        Q, R = cost_matrices(split_car, 'velocity_heavy')   #velocity has a higher cost
-    else:
-        Q, R = cost_matrices(split_car, 'distance_heavy')   #distance has a higher cost
+    Q, R = cost_matrices(split_car) 
+    print(Q)
     QN = Q
 
     x0 = []
@@ -118,7 +118,7 @@ def mpc(veh_states, xref, split_car, last_ref_in_mpc, split_distance, drag_or_no
     constraints = [x[:,0] == x0] # First constraints needs to be the initial state
     cost = 0.0 # Define the cost function
     for k in range(PREDICTION_HORIZON):
-        if type(x_last) != type(None) and drag_or_not == "1":   # The first mpc calculation doesn't have predicted values thus the ideal matrices are been used for the first iteration. Therefore the type is None in the first iteration but never after that.
+        if type(x_last) != type(None) and drag_or_not == 1:   # The first mpc calculation doesn't have predicted values thus the ideal matrices are been used for the first iteration. Therefore the type is None in the first iteration but never after that.
             Ad, Bd, Dd = create_matrices_linear(x_last[:,k+1])
         cost += cp.quad_form(x[:,k] - xref, Q) + cp.quad_form(u[:,k], R)    # Add the cost function sum(x^TQx + u^TRu). Observe here that x(0) is included thus the formula in https://osqp.org/docs/examples/mpc.html is correct.
         constraints += [x[:,k+1] == Ad@x[:,k] + Bd@u[:,k] + Dd]             # Add the system x(k+1) = Ad*x(k) + Bd*u(k) + Dd
@@ -141,26 +141,21 @@ def mpc(veh_states, xref, split_car, last_ref_in_mpc, split_distance, drag_or_no
     return u[:,0].value, x.value  
 
 
-def cost_matrices(split_car, part):
+def cost_matrices(split_car):
     # Cost matrices
     
     r_vec = []
     for i in range(NUM_CARS-1):
         r_vec.append(1.0)
-
         if (i == split_car-2) or (i == split_car-1): # Make the preceeding splitting vehicle's control signal more important(-2) Make the splitting vehicle's control signal(-1) more important
             r_vec[-1] = 10
-
     R = sparse.diags(r_vec)
     
     q_vec = [0]*(2*NUM_CARS-1)
     for i in range(NUM_CARS):
-
         if i != NUM_CARS-1:
             q_vec[i] = 10.0
-
         q_vec[i+NUM_CARS-1] = 1.0
-
         if i == split_car-1:
             q_vec[i] = 4*10.0
             q_vec[i-1] = 3*10.0 # Detta kan användas för att hålla avståndet framför splittens 2 bilar mer stabilt. Tex så att bil 1 och 2 inte kommer
@@ -320,7 +315,7 @@ def clear_and_draw_car(states, k_old, x_last):
         plot_car(states[i].x)  # plot the cars
 
     plt.axis([ROAD_LENGTH*k-x_last, ROAD_LENGTH*(k+1), -50, 50])
-    plt.grid(True)
+    #plt.grid(True)
     plt.pause(0.0001)
 
     return k, x_last
@@ -333,12 +328,13 @@ def velocity_plotter(dt_list, v_list):
     v_list = [element * 3.6 for element in v_list]
     for i in range(NUM_CARS):
         plt.plot(dt_list, v_list[i::NUM_CARS], colors[i%7], label=('v' + str(i+1)))
-
+        plt.xticks(fontsize=SIZE)
+        plt.yticks(fontsize=SIZE)
     plt.grid(True)
     #plt.axis("equal")
-    plt.xlabel("Time(s)", fontsize = 15)
-    plt.ylabel("Velocity(kph)", fontsize = 15)
-    plt.legend(prop={'size': 15})
+    plt.xlabel("Time(s)", fontsize = SIZE)
+    plt.ylabel("Velocity(kph)", fontsize = SIZE)
+    plt.legend(prop={'size': SIZE})
     plt.show()
 
 
@@ -348,11 +344,13 @@ def acceleration_plotter(dt_list, u_list):
 
     for i in range(NUM_CARS):
         plt.plot(dt_list, u_list[i::NUM_CARS], colors[i%7], label=('u' + str(i+1)))
+        plt.xticks(fontsize=SIZE)
+        plt.yticks(fontsize=SIZE)
     plt.grid(True)
     #plt.axis("equal")
-    plt.xlabel("Time(s)", fontsize = 15)
-    plt.ylabel("Control signal(m/s^2)", fontsize = 15)
-    plt.legend(prop={'size': 15})
+    plt.xlabel("Time(s)", fontsize = SIZE)
+    plt.ylabel("Control signal(m/s^2)", fontsize = SIZE)
+    plt.legend(prop={'size': SIZE})
     plt.show()
 
 
@@ -362,12 +360,14 @@ def distance_plotter(dt_list, distance_list, xref_list,split_car):
 
     for i in range(NUM_CARS - 1):
         plt.plot(dt_list, distance_list[i::NUM_CARS - 1], colors[i%7], label=('Δ' + str(i+1) + str(i+2)))
+        plt.xticks(fontsize=SIZE)
+        plt.yticks(fontsize=SIZE)
     plt.plot(dt_list, xref_list, '--k', label=("REF Δ" + str(split_car) + str(split_car+1)))
     plt.grid(True)
     #plt.axis('equal')
-    plt.xlabel("Time(s)", fontsize = 15)
-    plt.ylabel("Distance between vehciles(m)", fontsize = 15)
-    plt.legend(prop={'size': 15})
+    plt.xlabel("Time(s)", fontsize = SIZE)
+    plt.ylabel("Distance between vehciles(m)", fontsize = SIZE)
+    plt.legend(prop={'size': SIZE})
     plt.show()
 
 
@@ -377,10 +377,12 @@ def position_plotter(dt_list, x_list):
 
     for i in range(NUM_CARS):
         plt.plot(dt_list, x_list[i::NUM_CARS], colors[i%7], label=('x' + str(i+1)))
+        plt.xticks(fontsize=SIZE)
+        plt.yticks(fontsize=SIZE)
     plt.grid(True)
-    plt.xlabel("Time(s)", fontsize = 15)
-    plt.ylabel("Position(m)", fontsize = 15)
-    plt.legend(prop={'size': 15})
+    plt.xlabel("Time(s)", fontsize = SIZE)
+    plt.ylabel("Position(m)", fontsize = SIZE)
+    plt.legend(prop={'size': SIZE})
     plt.show()
 
 
@@ -566,3 +568,6 @@ def main():
 
 
 main()
+
+#42.5 --> air drag in the system but not in MPC.
+#9.14 --> delta34 min
