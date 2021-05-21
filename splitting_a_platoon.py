@@ -1,16 +1,21 @@
 '''
-Den här koden klarar av 50 meter på alla bilar och går tillbaka till initiala
-om det inte går att splitta. Det blir alldrig fel. 
+This code is written by Emil Vardar and Alin Gustafsson as bachelour thesis at
+Royal Institute of technology (KTH) in autonomous control. The code splits a 
+platoon up to 50 meters no matter between which vehicles the split is performed. 
+The splitting is accomplished by using Model Predictive Controller (MPC). For 
+distances greater than 50 meters if the split is cancelled the platoon is going
+back to the initial formation. The system also considers air drag. To compensate
+for the air drag linearized air drag has been added to the system.
 
+For more details see the paper 'Splitting a Platoon Using Model Predictive Control'
 '''
 
 import matplotlib.pyplot as plt
 import numpy as np
 import math
 import cvxpy as cp
-import scipy as sp
-from scipy import sparse
 import warnings
+from scipy import sparse
 
 # Vehicle parameters
 LENGTH = 12.0  # [m]
@@ -37,10 +42,10 @@ V_INIT = 90.0 / 3.6 # 90km/h -> 90/3.6 m/s
 PREDICTION_HORIZON = 30
 
 # Constriants
-SAFETY_DISTANCE = 1. + LENGTH # Albin --> Enligt Energy savings from an Eco-Cooperative Adaptive Cruise Control: a BEV platoon investigation så har de 2 meter som min
-MAX_ACCELERATION = 5  # 5 m/s^2
-MIN_ACCELERATION = -10 # 10 m/s^2 decleration
-MAX_VEL = 120/3.6 # m/s Albin --> Enligt Energy savings from an Eco-Cooperative Adaptive Cruise Control: a BEV platoon investigation så har de max 144 och min 0 kph så vår är ju i så fall skitbra
+SAFETY_DISTANCE = 1. + LENGTH
+MAX_ACCELERATION = 5  # m/s^2
+MIN_ACCELERATION = -10 #  m/s^2 
+MAX_VEL = 120/3.6 # m/s
 MIN_VEL = 40/3.6 # m/s
 
 # Max time
@@ -51,22 +56,17 @@ DT = 0.2  # [s]
 
 # Air drag coeff
 RHO = 1.225 # kg/m^3
-CD = 0.8   # Albin --> hittat från https://www.engineeringtoolbox.com/drag-coefficient-d_627.html
-            # och från Energy savings from an Eco-Cooperative Adaptive Cruise Control: a BEV platoon investigation tillsammans
+CD = 0.8 
 CD1 = 4.144 
 CD2 = 7.538
-# Albin --> Enligt Energy savings from an Eco-Cooperative Adaptive Cruise Control: a BEV platoon investigation så bör CD1 = 4.144 och CD2 = 7.538 för 94.84% R-square fit
 
+# Vehicle properties
 AREA = 6 # m^2
 WEIGTH_VEH = 40000.0 # kg
 K = RHO*AREA*CD/WEIGTH_VEH
 
 SIZE = 20 # Label size
 
-'''
-'Albin' --> Diskutera med Albin
-Svenska --> ställen jag har skrivit på svenska som vi kan tabort sist
-'''
 
 class VehicleState:
     """
@@ -102,7 +102,6 @@ def mpc(veh_states, xref, split_car, last_ref_in_mpc, split_distance, drag_or_no
     # Even if air drag has been choosen the first mpc needs to calculate with A and B matrices for the ideal case
     Ad, Bd, Dd = create_matrices()  # Create A, B and D matrices for the ideal case
     Q, R = cost_matrices(split_car) 
-    print(Q)
     QN = Q
 
     x0 = []
@@ -120,24 +119,21 @@ def mpc(veh_states, xref, split_car, last_ref_in_mpc, split_distance, drag_or_no
     for k in range(PREDICTION_HORIZON):
         if type(x_last) != type(None) and drag_or_not == 1:   # The first mpc calculation doesn't have predicted values thus the ideal matrices are been used for the first iteration. Therefore the type is None in the first iteration but never after that.
             Ad, Bd, Dd = create_matrices_linear(x_last[:,k+1])
-        cost += cp.quad_form(x[:,k] - xref, Q) + cp.quad_form(u[:,k], R)    # Add the cost function sum(x^TQx + u^TRu). Observe here that x(0) is included thus the formula in https://osqp.org/docs/examples/mpc.html is correct.
+        cost += cp.quad_form(x[:,k] - xref, Q) + cp.quad_form(u[:,k], R)    # Add the cost function sum(x^TQx + u^TRu)
         constraints += [x[:,k+1] == Ad@x[:,k] + Bd@u[:,k] + Dd]             # Add the system x(k+1) = Ad*x(k) + Bd*u(k) + Dd
         for i in range(NUM_CARS):                                           # The for loop is for defining safety distance for all cars
             constraints += [MIN_VEL <= x[NUM_CARS-1+i,k], x[NUM_CARS-1+i,k] <= MAX_VEL]  # Add the velocity constrain just on the velocity inputs in the state vector
             if i != NUM_CARS-1:
                 constraints += [SAFETY_DISTANCE <= x[i,k]]  # Add distance constrain on just the distance inputs in the state vector
-        if k >= (PREDICTION_HORIZON - last_ref_in_mpc) and hard_split:  # Svenska Den bör inte ligga i for loopen. Den gör om samma sak om och om igen fast den bara bör sätte hard constrainen 1 gång
-            constraints += [[split_distance + LENGTH + 1.] <= x[split_car-1,k]] # +1 or +2 affects the overshoot
+        if k >= (PREDICTION_HORIZON - last_ref_in_mpc) and hard_split: 
+            constraints += [[split_distance + LENGTH + 1.] <= x[split_car-1,k]] 
         constraints += [MIN_ACCELERATION <= u[:,k], u[:,k] <= MAX_ACCELERATION] # Constarins for the control signal
-    cost += cp.quad_form(x[:,PREDICTION_HORIZON] - xref, QN) # Svenska Låt den vara kvar för rapportten. Det blir nog lättare att ha den kvar när vi skriver.
+    cost += cp.quad_form(x[:,PREDICTION_HORIZON] - xref, QN)
     
     # Form and solve problem.
     prob = cp.Problem(cp.Minimize(cost), constraints)
     sol = prob.solve(solver=cp.ECOS)
     warnings.filterwarnings("ignore")
-    #print(u.value)
-    # x[:,0] is the states of the vehicles at this moment, i.e. when mpc is been calculated. x[:,1] is the state where the vehicles will be when we have done the calculations bellow, i.e. the time next mpc will be calculated 
-    # u[:,0] is the value that the control signal should be at this moment. Thus we are applying that to the system. 
     return u[:,0].value, x.value  
 
 
@@ -148,7 +144,7 @@ def cost_matrices(split_car):
     for i in range(NUM_CARS-1):
         r_vec.append(1.0)
         if (i == split_car-2) or (i == split_car-1): # Make the preceeding splitting vehicle's control signal more important(-2) Make the splitting vehicle's control signal(-1) more important
-            r_vec[-1] = 10
+            r_vec[-1] = 10.0
     R = sparse.diags(r_vec)
     
     q_vec = [0]*(2*NUM_CARS-1)
@@ -158,8 +154,7 @@ def cost_matrices(split_car):
         q_vec[i+NUM_CARS-1] = 1.0
         if i == split_car-1:
             q_vec[i] = 4*10.0
-            q_vec[i-1] = 3*10.0 # Detta kan användas för att hålla avståndet framför splittens 2 bilar mer stabilt. Tex så att bil 1 och 2 inte kommer
-            # för närma varandra när bil 2 och 3 ska splittas. 
+            q_vec[i-1] = 3*10.0
     Q = sparse.diags(q_vec)
     return Q, R
 
@@ -182,7 +177,7 @@ def create_matrices():
     # Discretize A and B matrices
     Ad = (I + DT*A)
     Bd =  DT*B
-    Dd = D
+    Dd = DT*D
     return Ad, Bd, Dd
 
 
@@ -193,7 +188,7 @@ def create_matrices_linear(x_pred):
     D = np.zeros(2*NUM_CARS-1)
 
     for i in range(NUM_CARS-1):
-        S, R, Q = deltax_velocity_dependence(x_pred,i)   # i=0 --> s2, r2, q2, [in comp. s1, r1, q1] i==1 --> s3, r3, q3
+        S, R, Q = deltax_velocity_dependence(x_pred,i) 
 
         A[i,NUM_CARS-1+i] = 1
         A[i,NUM_CARS+i] = -1
@@ -216,7 +211,7 @@ def create_matrices_linear(x_pred):
 def deltax_velocity_dependence(x_pred,i):
     R = -K * x_pred[NUM_CARS+i] * (1 - CD1/(CD2 + x_pred[i])) # i+1 because when it is been sending to this func. the input is i e.g i=0 but we then need for the second vehicle which is i=1 actualy.
     S = -K/2 * (x_pred[NUM_CARS+i] ** 2) * (CD1/((CD2 + x_pred[i]) ** 2))
-    Q = -K/2 * (x_pred[NUM_CARS+i]**2) * (x_pred[i] * (CD1/((CD2 + x_pred[i]) ** 2)) + (1 - CD1/(CD2 + x_pred[i]))) # Albin ändrade minuset i mitten till plus jag tror vi hade gjort det fel förut men kontrollera för säkerhetensskull
+    Q = -K/2 * (x_pred[NUM_CARS+i]**2) * (x_pred[i] * (CD1/((CD2 + x_pred[i]) ** 2)) + (1 - CD1/(CD2 + x_pred[i]))) 
     return R, S, Q
 
 
@@ -492,7 +487,7 @@ def animation(inital_veh_states, split_event, initial_xref):
 
         # Updates time
         time += DT
-        time = round(time,1) # Albin --> la till den så att vi inte får 0.40000002. Istället så får vi nu 0.4 exakt
+        time = round(time,1)
         dt_list.append(time)
 
         # Breakes animation when first vehicle reaches goal
@@ -522,7 +517,7 @@ def pos_list_create():
     
     X_LIST = [X_POS] 
     for i in range(NUM_CARS-1):
-        X_POS -= (INIT_DIST + LENGTH)  # LENGTH needs to be added because X_POS is the distance between the center of each vehicle while the distance is between the front-end and the back-end of the vehicle
+        X_POS -= (INIT_DIST + LENGTH) 
         X_LIST.append(X_POS) 
     return
 
@@ -569,5 +564,3 @@ def main():
 
 main()
 
-#42.5 --> air drag in the system but not in MPC.
-#9.14 --> delta34 min
