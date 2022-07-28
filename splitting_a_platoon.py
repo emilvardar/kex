@@ -1,5 +1,5 @@
 '''
-This code is written by Emil Vardar and Alin Gustafsson as bachelour thesis at
+This code is written by Emil Vardar and Albin Gustafsson as bachelour thesis at
 Royal Institute of technology (KTH) in autonomous control. The code splits a 
 platoon up to 50 meters no matter between which vehicles the split is performed. 
 The splitting is accomplished by using Model Predictive Controller (MPC). For 
